@@ -1,0 +1,24 @@
+{
+  "name": "gmailapi",
+  "version": "1.0.0",
+  "description": "",
+  "main": "script.js",
+  "dependencies": {
+    "googleapis": "^19.0.0",
+    "google-auth-library": "^0.10.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kraag22/gmailapi.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kraag22/gmailapi/issues"
+  },
+  "homepage": "https://github.com/kraag22/gmailapi#readme"
+}
