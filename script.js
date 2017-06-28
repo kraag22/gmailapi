@@ -1,9 +1,9 @@
 
-
 var fs = require('fs');
 var readline = require('readline');
 var google = require('googleapis');
 var googleAuth = require('google-auth-library');
+var sleep = require('sleep');
 
 // If modifying these scopes, delete your previously saved credentials
 // at ~/.credentials/gmail-nodejs-quickstart.json
@@ -25,16 +25,57 @@ function main() {
     // Authorize a client with the loaded credentials, then call the
     // Gmail API.
     authorize(JSON.parse(content), function(auth) {
-
+      let promises = []
       search(auth, 'coolpeople').then(messages => {
-        console.log('No:', messages.length == 0)
+        console.log('No:', messages.length)
 
-        messages.forEach((message) =>{
-          console.log('- %s', message.id);
+        let restrict = 5000
+        let sleepAfter = 0
+        messages.forEach((message) => {
+          sleepAfter++
+          restrict = restrict - 1
+
+          if (restrict > 0) {
+            console.log('- %s', message.id)
+            promises.push(getMessage(auth, message.id))
+          }
+
+          if (sleepAfter > 100) {
+            sleep.sleep(5)
+            sleepAfter = 0
+          }
         })
 
-        getMessage(auth, messages[0].id).then(message => {
-          console.log(message)
+        Promise.all(promises).then(values => {
+          let result = values.map( item => {
+            let parsed = {}
+            item.payload.headers.forEach(header => {
+              if (header.name === 'Subject') {
+                parsed.subject = header.value
+              }
+
+              if (header.name === 'Date') {
+                parsed.date = header.value
+              }
+            })
+            return parsed
+          })
+
+          result = result.map(res => {
+            var date = new Date(res.date)
+            console.log(res.subject)
+            console.log(res.subject.replace(/[^0-9]*/g, ''))
+            var salary = parseInt(res.subject.replace(/[^0-9]*/g, ''))
+            var currency = res.subject.toLocaleUpperCase().includes('CZK') ? 'CZK' : 'EUR'
+            return {date, salary, currency}
+          })
+
+          result = result.filter(item => {
+            return Number.isInteger(item.salary)
+          })
+          console.log(result)
+
+          console.log(promises.length)
         })
       })
     });
