@@ -1,233 +1,141 @@
+var api = require("./api")
+let constants = require("./const")
 
-var fs = require('fs');
-var readline = require('readline');
-var google = require('googleapis');
-var googleAuth = require('google-auth-library');
-var sleep = require('sleep');
+var exports = module.exports = {}
 
-// If modifying these scopes, delete your previously saved credentials
-// at ~/.credentials/gmail-nodejs-quickstart.json
-var SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
-var TOKEN_DIR = (process.env.HOME || process.env.HOMEPATH ||
-    process.env.USERPROFILE) + '/.credentials/';
-var TOKEN_PATH = TOKEN_DIR + 'gmail-nodejs-quickstart.json';
+exports.computeQuarters = function computeQuarters(data) {
+  let quarters = {}
 
-var fs = require('fs');
-
-function main() {
-
-  // Load client secrets from a local file.
-  fs.readFile('client_secret.json', function processClientSecrets(err, content) {
-    if (err) {
-      console.log('Error loading client secret file: ' + err);
-      return;
+  data.forEach(item => {
+    let label = item.year + 'Q' + item.quarter
+    if (!quarters[label]) {
+      quarters[label] = []
     }
-    // Authorize a client with the loaded credentials, then call the
-    // Gmail API.
-    authorize(JSON.parse(content), function(auth) {
-      let promises = []
-      search(auth, 'coolpeople').then(messages => {
-        console.log('No:', messages.length)
 
-        let restrict = 5000
-        let sleepAfter = 0
-        messages.forEach((message) => {
-          sleepAfter++
-          restrict = restrict - 1
+    quarters[label].push(item.salary)
+  })
 
-          if (restrict > 0) {
-            console.log('- %s', message.id)
-            promises.push(getMessage(auth, message.id))
-          }
+  let labels = Object.keys(quarters)
 
-          if (sleepAfter > 100) {
-            sleep.sleep(5)
-            sleepAfter = 0
-          }
-        })
+  labels.forEach(label => {
+    quarters[label] = {
+      offers: quarters[label].length,
+      average: Math.round(quarters[label].reduce((a, b) => a + b) / quarters[label].length)
+    }
+  })
 
-        Promise.all(promises).then(values => {
-          let result = values.map( item => {
-            let parsed = {}
-            item.payload.headers.forEach(header => {
-              if (header.name === 'Subject') {
-                parsed.subject = header.value
-              }
-
-              if (header.name === 'Date') {
-                parsed.date = header.value
-              }
-            })
-            return parsed
-          })
-
-          result = result.map(res => {
-            var date = new Date(res.date)
-            console.log(res.subject)
-            console.log(res.subject.replace(/[^0-9]*/g, ''))
-            var salary = parseInt(res.subject.replace(/[^0-9]*/g, ''))
-            var currency = res.subject.toLocaleUpperCase().includes('CZK') ? 'CZK' : 'EUR'
-            return {date, salary, currency}
-          })
-
-          result = result.filter(item => {
-            return Number.isInteger(item.salary)
-          })
-          console.log(result)
-
-          console.log(promises.length)
-        })
-      })
-    });
-  });
+  return quarters
 }
 
-main()
+exports.formatDetails = function formatDetails(details) {
+  return details.map(detail => {
+    return {
+      year: detail.date.getFullYear(),
+      month: (detail.date.getMonth() + 1),
+      quarter: Math.floor(detail.date.getMonth() / 3) + 1,
+      salary: detail.currency === 'EUR' ? Math.round(detail.salary * constants.EUR_CZK_RATIO) : detail.salary
+    }
+  })
+}
 
-/**
- * Create an OAuth2 client with the given credentials, and then execute the
- * given callback function.
- *
- * @param {Object} credentials The authorization client credentials.
- * @param {function} callback The callback to call with the authorized client.
- */
-function authorize(credentials, callback) {
-  var clientSecret = credentials.installed.client_secret;
-  var clientId = credentials.installed.client_id;
-  var redirectUrl = credentials.installed.redirect_uris[0];
-  var auth = new googleAuth();
-  var oauth2Client = new auth.OAuth2(clientId, clientSecret, redirectUrl);
+exports.getAllMessages = async function getAllMessages(auth, messages) {
+  let batchSize = 100
+  let result = []
 
-  // Check if we have previously stored a token.
-  fs.readFile(TOKEN_PATH, function(err, token) {
-    if (err) {
-      getNewToken(oauth2Client, callback);
+  while (messages.length > 0) {
+    let batchIds = popIds(messages, batchSize)
+    let batchResult = await getBatch(auth, batchIds)
+
+    result = result.concat(batchResult)
+    console.log('processed:', result.length)
+  }
+
+  return result
+}
+
+exports.printResults = function printResults(data, printer) {
+  let keys = Object.keys(data)
+  let toPrint = []
+  let offers = 0
+
+  keys.forEach(key => {
+    offers += data[key].offers
+    toPrint.push(key+';'+data[key].offers+';'+data[key].average)
+  })
+
+  printer('Based on ' + offers + ' offers:')
+  toPrint.forEach(item => {
+    printer(item)
+  })
+}
+
+function popIds(messages, batchSize) {
+  let batch = []
+  for (let i=0; i < batchSize; i++) {
+    let message = messages.pop()
+    if (message) {
+      batch.push(message)
     } else {
-      oauth2Client.credentials = JSON.parse(token);
-      callback(oauth2Client);
-    }
-  });
-}
-
-/**
- * Get and store new token after prompting for user authorization, and then
- * execute the given callback with the authorized OAuth2 client.
- *
- * @param {google.auth.OAuth2} oauth2Client The OAuth2 client to get token for.
- * @param {getEventsCallback} callback The callback to call with the authorized
- *     client.
- */
-function getNewToken(oauth2Client, callback) {
-  var authUrl = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES
-  });
-  console.log('Authorize this app by visiting this url: ', authUrl);
-  var rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-  rl.question('Enter the code from that page here: ', function(code) {
-    rl.close();
-    oauth2Client.getToken(code, function(err, token) {
-      if (err) {
-        console.log('Error while trying to retrieve access token', err);
-        return;
-      }
-      oauth2Client.credentials = token;
-      storeToken(token);
-      callback(oauth2Client);
-    });
-  });
-}
-
-/**
- * Store token to disk be used in later program executions.
- *
- * @param {Object} token The token to store to disk.
- */
-function storeToken(token) {
-  try {
-    fs.mkdirSync(TOKEN_DIR);
-  } catch (err) {
-    if (err.code != 'EEXIST') {
-      throw err;
+      break;
     }
   }
-  fs.writeFile(TOKEN_PATH, JSON.stringify(token));
-  console.log('Token stored to ' + TOKEN_PATH);
+  return batch.map(item => {
+    return item.id
+  })
 }
 
-/**
- * Lists the labels in the user's account.
- *
- * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
- */
-function listLabels(auth) {
-  var gmail = google.gmail('v1');
-  gmail.users.labels.list({
-    auth: auth,
-    userId: 'me',
-  }, function(err, response) {
-    if (err) {
-      console.log('The API returned an error: ' + err);
-      return;
-    }
-    var labels = response.labels;
-    if (labels.length == 0) {
-      console.log('No labels found.');
-    } else {
-      console.log('Labels:');
-      for (var i = 0; i < labels.length; i++) {
-        var label = labels[i];
-        console.log('- %s', label.name);
+function getBatch(auth, ids) {
+  promises = []
+  ids.forEach(id => {
+    promises.push(api.getMessage(auth, id))
+  })
+
+  return Promise.all(promises).then( values => parseBatch(values))
+}
+
+function parseSalary(string) {
+  let res = string.match(/[0-9 .]{4,10}/)
+  if (res && res.length > 0) {
+    return parseInt(res[0].replace(/[^0-9]*/g, ''))
+  } else {
+    return false
+  }
+}
+
+exports.parseSalary = parseSalary
+
+function parseBatch(values) {
+  let result = values.map( item => {
+    let parsed = {}
+    item.payload.headers.forEach(header => {
+      if (header.name === 'Subject') {
+        parsed.subject = header.value
       }
-    }
-  });
-}
 
-/**
- * Search messages
- *
- * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
- */
-function search(auth, query) {
-  return new Promise( (resolve, reject) => {
-    var gmail = google.gmail('v1');
-
-      gmail.users.messages.list({
-        auth: auth,
-        userId: 'me',
-        q: query,
-        maxResults: 500,
-        includeSpamTrash: true
-      }, function(err, response) {
-        if (err) {
-          reject('The search API returned an error: ' + err)
-        }
-        else {
-          resolve(response.messages)
-        }
-      });
+      if (header.name === 'Date') {
+        parsed.date = header.value
+      }
+    })
+    return parsed
   })
-}
 
-function getMessage(auth, id) {
-  return new Promise( (resolve, reject) => {
-    var gmail = google.gmail('v1');
+  result = result.map(res => {
+    let date = new Date(res.date)
+    let salary = parseSalary(res.subject)
+    let currency = false
+    let currencies = ['KČ', 'KC', 'CZK', 'EUR']
+    currencies.forEach(curr => {
+      if (res.subject.toLocaleUpperCase().includes(curr)) {
+        currency = curr
+      }
+    })
 
-      gmail.users.messages.get({
-        auth: auth,
-        userId: 'me',
-        id: id,
-        format: 'metadata'
-      }, function(err, response) {
-        if (err) {
-          reject('The get message API returned an error: ' + err)
-        }
-        else {
-          resolve(response)
-        }
-      });
+    return {date, salary, currency}
   })
+
+  result = result.filter(item => {
+    return Number.isInteger(item.salary) && item.currency
+  })
+
+  return result
 }

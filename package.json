@@ -5,12 +5,15 @@
   "main": "script.js",
   "dependencies": {
     "google-auth-library": "^0.10.0",
-    "googleapis": "^19.0.0",
-    "sleep": "^5.1.1"
+    "googleapis": "^19.0.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "jest": "^20.0.4"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "app": "node app.js",
+    "test": "jest",
+    "watch": "jest --watch"
   },
   "repository": {
     "type": "git",
